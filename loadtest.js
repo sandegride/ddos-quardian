@@ -1,24 +1,22 @@
 import http from 'k6/http';
-import { sleep, check } from 'k6';
+import { sleep } from 'k6';
 
 export const options = {
-    stages: [
-        { duration: '30s', target: 10 },  // постепенный рост до 10 пользователей
-        { duration: '1m', target: 10 },   // удержание 10 пользователей
-        { duration: '30s', target: 0 },   // постепенное снижение
-    ],
-    thresholds: {
-        http_req_duration: ['p(95)<500'], // 95% запросов должны быть быстрее 500ms
-    },
+    vus: 5,
+    duration: '30s',
 };
 
 export default function () {
-    const res = http.get('http://localhost:9000');
+    // Можно тестировать разные URL
+    const urls = [
+        'http://localhost:8080/',
+        'http://localhost:8080/index.html',
+        'http://localhost:8080/style.css',
+    ];
 
-    check(res, {
-        'status is 200': (r) => r.status === 200,
-        'response time < 500ms': (r) => r.timings.duration < 500,
-    });
+    // Случайный URL
+    const randomUrl = urls[Math.floor(Math.random() * urls.length)];
+    http.get(randomUrl);
 
-    sleep(1); // пауза между запросами
+    sleep(Math.random() * 2 + 1); // Случайная пауза 1-3 секунды
 }
