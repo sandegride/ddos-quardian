@@ -1,0 +1,15 @@
+{
+  "listen_addr": ":8080",
+  "backend_url": "http://127.0.0.1:9000",
+  "interface": "eth0",
+  "bpf": "ip",
+  "window_ms": 1000,
+  "model_path": "./models/model.json",
+  "threshold": 0.7,
+  "confirm_windows": 2,
+  "relax_windows": 2,
+  "whitelist_path": "./configs/whitelist.txt",
+  "alert_webhook_url": "",
+  "enable_mitigation": false,
+  "mitigation_script": "./scripts/mitigate.sh"
+}
