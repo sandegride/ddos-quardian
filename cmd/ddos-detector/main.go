@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,6 +13,7 @@ import (
 	"ddos-detector/internal/aggregator"
 	"ddos-detector/internal/collector"
 	"ddos-detector/internal/config"
+	"ddos-detector/internal/dashboard"
 	"ddos-detector/internal/detector"
 	"ddos-detector/internal/ml"
 )
@@ -58,7 +60,7 @@ func main() {
 	pktCh := make(chan collector.PacketEvent, 50000)
 	winCh := make(chan aggregator.WindowStats, 100)
 
-	// Collector (по умолчанию HTTP proxy collector, в pcap режиме — сбор пакетов)
+	// Collector (по умолчанию HTTP proxy collector; в pcap режиме — сбор пакетов)
 	go func() {
 		opt := collector.Options{
 			ListenAddr: cfg.ListenAddr,
@@ -89,6 +91,16 @@ func main() {
 	det.EnableMitigation = cfg.EnableMitigation
 	det.MitigationScript = cfg.MitigationScript
 
+	// Dashboard (web UI)
+	store := dashboard.NewStore(300)
+	det.Store = store
+	go func() {
+		if err := dashboard.Start(ctx, cfg.DashboardAddr, store); err != nil && err != http.ErrServerClosed {
+			fmt.Println("Dashboard error:", err)
+			cancel()
+		}
+	}()
+
 	fmt.Println("DDoS detector started")
 	fmt.Println("Window:", window, "Threshold:", det.Threshold)
 	if cfg.BackendURL != "" {
@@ -101,6 +113,7 @@ func main() {
 	} else {
 		fmt.Println("Model: NONE (heuristic mode)")
 	}
+	fmt.Println("Dashboard:", "http://127.0.0.1"+cfg.DashboardAddr)
 
 	if err := det.Run(ctx, winCh); err != nil {
 		fmt.Println("Detector stopped:", err)

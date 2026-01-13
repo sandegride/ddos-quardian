@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DDoS Detector — Dashboard</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="container">
+    <div class="title">
+      <h1>DDoS Detector</h1>
+      <p class="subtitle">Демонстрационная панель мониторинга (окна Δt)</p>
+    </div>
+    <div class="status">
+      <div class="pill" id="statePill">—</div>
+      <div class="kpi">
+        <div class="kpi-label">p(attack)</div>
+        <div class="kpi-value" id="probValue">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">threshold</div>
+        <div class="kpi-value" id="thrValue">—</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <div class="card-head">
+        <h2>Последнее окно</h2>
+        <div class="muted" id="tsValue">—</div>
+      </div>
+
+      <div class="grid">
+        <div class="metric">
+          <div class="metric-label">packets</div>
+          <div class="metric-value" id="mPackets">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">bytes</div>
+          <div class="metric-value" id="mBytes">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">unique src IPs</div>
+          <div class="metric-value" id="mUniq">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">max per src</div>
+          <div class="metric-value" id="mMax">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">tcp / udp / icmp</div>
+          <div class="metric-value" id="mProto">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">tcp syn</div>
+          <div class="metric-value" id="mSyn">—</div>
+        </div>
+      </div>
+
+      <div class="split">
+        <div>
+          <h3>Top источники</h3>
+          <ol id="topList" class="toplist"></ol>
+          <div class="muted small">Показываются источники текущего окна (для DDoS обычно доминируют).</div>
+        </div>
+        <div>
+          <h3>Окна (последние 120)</h3>
+          <div class="table-wrap">
+            <table id="tbl" class="tbl">
+              <thead>
+                <tr>
+                  <th>time</th>
+                  <th>state</th>
+                  <th>p</th>
+                  <th>packets</th>
+                  <th>uniq IPs</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="muted small">Обновление раз в ~1 секунду (polling).</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Как использовать</h2>
+      <ul>
+        <li>Запустите backend (например, <code>python3 -m http.server 9000</code>).</li>
+        <li>Запустите детектор (reverse-proxy на <code>:8080</code>) и откройте backend через proxy.</li>
+        <li>Для имитации нагрузки используйте k6 (loadtest.js) или curl в цикле.</li>
+      </ul>
+      <p class="muted small">Панель не вмешивается в проксирование; она живёт на отдельном адресе (dashboard_addr).</p>
+    </section>
+  </main>
+
+  <footer class="container footer">
+    <span class="muted">Demo UI • JSON API: <code>/api/latest</code>, <code>/api/windows</code></span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

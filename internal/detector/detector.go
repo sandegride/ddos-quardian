@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ddos-detector/internal/aggregator"
+	"ddos-detector/internal/dashboard"
 	"ddos-detector/internal/features"
 	"ddos-detector/internal/ml"
 )
@@ -31,6 +32,9 @@ type Detector struct {
 	WebhookURL       string
 	EnableMitigation bool
 	MitigationScript string
+
+	// Optional in-memory store for the demo dashboard UI.
+	Store *dashboard.Store
 
 	state      State
 	aboveCount int
@@ -105,6 +109,32 @@ func (d *Detector) processWindow(ws aggregator.WindowStats) {
 		}
 	}
 
+	// Persist snapshot for dashboard (if enabled).
+	if d.Store != nil {
+		featuresCopy := make([]float64, len(x))
+		copy(featuresCopy, x)
+
+		top := aggregator.TopN(ws.SrcCounts, 5)
+		d.Store.Add(dashboard.WindowRecord{
+			Ts:          ws.WindowEnd,
+			State:       string(d.state),
+			Probability: p,
+			Threshold:   d.Threshold,
+			Metrics: dashboard.WindowMetrics{
+				TotalPackets: ws.TotalPackets,
+				TotalBytes:   ws.TotalBytes,
+				UniqueSrcIPs: ws.UniqueSrcIPs,
+				MaxPerSrc:    ws.MaxPerSrc,
+				TCPPackets:   ws.TCPPackets,
+				UDPPackets:   ws.UDPPackets,
+				ICMPPackets:  ws.ICMPPackets,
+				TCPSYN:       ws.TCPSYN,
+			},
+			Features:   featuresCopy,
+			TopSources: top,
+		})
+	}
+
 	// Output
 	fmt.Printf("[%s] %s | p=%.3f packets=%d bytes=%d uniqIP=%d maxIP=%d syn=%d tcp=%d udp=%d ent=%.2f\n",
 		time.Now().Format(time.RFC3339),
@@ -175,7 +205,7 @@ func (d *Detector) mitigate(top []string) error {
 
 // heuristicScore returns a rough probability estimate without ML model.
 func heuristicScore(ws aggregator.WindowStats) float64 {
-	// Very rough: combine normalized signals
+	// Very rough: combine normalized signals.
 	// Tune these for your environment.
 	score := 0.0
 	if ws.TotalPackets > 5000 {

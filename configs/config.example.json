@@ -4,12 +4,13 @@
   "interface": "eth0",
   "bpf": "ip",
   "window_ms": 1000,
-  "model_path": "./models/model.json",
+  "model_path": "./models/model_demo.json",
   "threshold": 0.7,
   "confirm_windows": 2,
   "relax_windows": 2,
   "whitelist_path": "./configs/whitelist.txt",
   "alert_webhook_url": "",
   "enable_mitigation": false,
-  "mitigation_script": "./scripts/mitigate.sh"
+  "mitigation_script": "./scripts/mitigate.sh",
+  "dashboard_addr": ":8090"
 }

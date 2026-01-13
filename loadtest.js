@@ -1,22 +1,41 @@
 import http from 'k6/http';
-import { sleep } from 'k6';
+import { sleep, check } from 'k6';
+import { Rate } from 'k6/metrics';
+
+// Кастомная метрика для отслеживания ошибок
+const errorRate = new Rate('errors');
 
 export const options = {
-    vus: 5,
-    duration: '30s',
+    stages: [
+        { duration: '30s', target: 1000 },   // Плавный рост до 1000 пользователей
+        { duration: '1m', target: 5000 },    // Достижение пиковой нагрузки
+        { duration: '30s', target: 5000 },   // Удержание пика
+        { duration: '30s', target: 1000 },   // Снижение нагрузки
+    ],
+    thresholds: {
+        http_req_duration: ['p(95)<500'],   // 95% запросов должны быть <500ms
+        errors: ['rate<0.01'],              // Меньше 1% ошибок
+        http_req_failed: ['rate<0.05'],     // Меньше 5% неудачных запросов
+    },
 };
 
 export default function () {
-    // Можно тестировать разные URL
     const urls = [
         'http://localhost:8080/',
         'http://localhost:8080/index.html',
         'http://localhost:8080/style.css',
     ];
 
-    // Случайный URL
     const randomUrl = urls[Math.floor(Math.random() * urls.length)];
-    http.get(randomUrl);
 
-    sleep(Math.random() * 2 + 1); // Случайная пауза 1-3 секунды
+    const res = http.get(randomUrl);
+
+    const checkResult = check(res, {
+        'status is 200': (r) => r.status === 200,
+        'response time OK': (r) => r.timings.duration < 1000,
+    });
+
+    errorRate.add(!checkResult);
+
+    sleep(Math.random() * 2 + 1);
 }
