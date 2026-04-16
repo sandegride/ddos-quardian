@@ -2,10 +2,12 @@ package aggregator
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
 	"ddos-detector/internal/collector"
+	"ddos-detector/internal/config"
 )
 
 type WindowStats struct {
@@ -31,12 +33,12 @@ type WindowStats struct {
 }
 
 type Aggregator struct {
-	wl map[string]struct{}
+	wl *config.Whitelist
 }
 
-func New(whitelist map[string]struct{}) *Aggregator {
+func New(whitelist *config.Whitelist) *Aggregator {
 	if whitelist == nil {
-		whitelist = map[string]struct{}{}
+		whitelist = config.EmptyWhitelist()
 	}
 	return &Aggregator{wl: whitelist}
 }
@@ -58,8 +60,12 @@ func (a *Aggregator) Run(ctx context.Context, in <-chan collector.PacketEvent, w
 				ws.MaxPerSrc = v
 			}
 		}
-		// Emit
-		out <- ws
+		// Non-blocking emit: drop window if detector is slow and log warning.
+		select {
+		case out <- ws:
+		default:
+			fmt.Println("[aggregator] warning: window channel full, dropping window")
+		}
 
 		// Reset
 		ws = WindowStats{
@@ -74,7 +80,7 @@ func (a *Aggregator) Run(ctx context.Context, in <-chan collector.PacketEvent, w
 			return nil
 		case ev := <-in:
 			if ev.SrcIP != "" {
-				if _, ok := a.wl[ev.SrcIP]; ok {
+				if a.wl.Contains(ev.SrcIP) {
 					// ignore whitelisted sources
 					continue
 				}

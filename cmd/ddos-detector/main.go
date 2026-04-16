@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -56,6 +57,17 @@ func main() {
 		<-sigCh
 		cancel()
 	}()
+
+	// Если backend_url == "builtin" или не задан — поднимаем встроенный echo-сервер.
+	if cfg.BackendURL == "" || cfg.BackendURL == "builtin" {
+		addr, err := startBuiltinBackend(ctx)
+		if err != nil {
+			fmt.Println("Builtin backend error:", err)
+			os.Exit(1)
+		}
+		cfg.BackendURL = "http://" + addr
+		fmt.Println("Builtin echo backend started on", cfg.BackendURL)
+	}
 
 	pktCh := make(chan collector.PacketEvent, 50000)
 	winCh := make(chan aggregator.WindowStats, 100)
@@ -120,4 +132,31 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("Stopped")
+}
+
+// startBuiltinBackend запускает простой HTTP echo-сервер на свободном порту.
+// Используется для тестирования без внешнего бэкенда.
+func startBuiltinBackend(ctx context.Context) (string, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	addr := ln.Addr().String()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "OK ip=%s path=%s\n", r.RemoteAddr, r.URL.Path)
+	})
+	srv := &http.Server{Handler: mux}
+
+	go func() {
+		<-ctx.Done()
+		_ = srv.Close()
+	}()
+	go func() {
+		_ = srv.Serve(ln)
+	}()
+
+	return addr, nil
 }

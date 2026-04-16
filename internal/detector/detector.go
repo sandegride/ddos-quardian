@@ -178,7 +178,9 @@ func (d *Detector) alert(ws aggregator.WindowStats, p float64, top []string) {
 	fmt.Println("=====================================")
 
 	if d.WebhookURL != "" {
-		_ = postJSON(d.WebhookURL, b)
+		if err := postJSON(d.WebhookURL, b); err != nil {
+			fmt.Println("[detector] webhook error:", err)
+		}
 	}
 }
 
