@@ -16,6 +16,14 @@ type WindowMetrics struct {
 	UDPPackets  int `json:"udp_packets"`
 	ICMPPackets int `json:"icmp_packets"`
 	TCPSYN      int `json:"tcp_syn"`
+
+	// Backend health: how the protected service behaved during the window.
+	BackendRequests     int     `json:"backend_requests"`
+	Backend2xx          int     `json:"backend_2xx"`
+	Backend4xx          int     `json:"backend_4xx"`
+	Backend5xx          int     `json:"backend_5xx"`
+	BackendAvgLatencyMs int     `json:"backend_avg_latency_ms"`
+	BackendSuccessRate  float64 `json:"backend_success_rate"`
 }
 
 type WindowRecord struct {

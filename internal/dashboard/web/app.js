@@ -73,6 +73,23 @@ Chart.defaults.color = "#cbd2e0";
 Chart.defaults.font.family = "ui-sans-serif, system-ui, sans-serif";
 Chart.defaults.animation = false;
 
+const healthChart = new Chart(document.getElementById("healthChart"), {
+  type: "line",
+  data: { labels: [], datasets: [
+    { label: "success rate (%)", data: [], yAxisID: "y", borderColor: "#7be29e", backgroundColor: "rgba(123,226,158,0.15)", fill: true, tension: 0.25, pointRadius: 0 },
+    { label: "avg latency (ms)", data: [], yAxisID: "y1", borderColor: "#ff8a65", pointRadius: 0, tension: 0.25 },
+  ]},
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    scales: {
+      x: commonScale.x,
+      y:  { position: "left",  min: 0, max: 100, ticks: { color: "#7be29e", callback: v => v + "%" }, grid: { color: "rgba(255,255,255,0.05)" } },
+      y1: { position: "right", beginAtZero: true, ticks: { color: "#ff8a65", callback: v => v + "ms" }, grid: { drawOnChartArea: false } },
+    },
+    plugins: { legend: { labels: { color: "#cbd2e0" } } },
+  },
+});
+
 const probChart = new Chart(document.getElementById("probChart"), {
   type: "line",
   data: { labels: [], datasets: [
@@ -152,6 +169,12 @@ function rebuildLineCharts(records) {
   trafficChart.data.datasets[0].data = slice.map(r => r.metrics?.total_packets || 0);
   trafficChart.data.datasets[1].data = slice.map(r => r.metrics?.unique_src_ips || 0);
   trafficChart.update("none");
+
+  const withBackend = slice.filter(r => (r.metrics?.backend_requests || 0) > 0);
+  healthChart.data.labels = withBackend.map(r => new Date(r.ts).toLocaleTimeString());
+  healthChart.data.datasets[0].data = withBackend.map(r => (r.metrics.backend_success_rate || 0) * 100);
+  healthChart.data.datasets[1].data = withBackend.map(r => r.metrics.backend_avg_latency_ms || 0);
+  healthChart.update("none");
 }
 
 // ---------- dashboard updaters ----------------------------------------
@@ -177,6 +200,21 @@ function updateLatest(rec) {
   setText("mMax",     fmtNum(m.max_per_src));
   setText("mProto",   `${fmtNum(m.tcp_packets)} / ${fmtNum(m.udp_packets)} / ${fmtNum(m.icmp_packets)}`);
   setText("mSyn",     fmtNum(m.tcp_syn));
+
+  // Backend health metrics
+  const reqs = m.backend_requests || 0;
+  setText("mBackendReqs", fmtNum(reqs));
+  if (reqs > 0) {
+    setText("mSuccess", (m.backend_success_rate * 100).toFixed(1) + "%");
+    setText("mLatency", fmtNum(m.backend_avg_latency_ms) + " ms");
+    setText("mBackendCodes", `${fmtNum(m.backend_2xx)} / ${fmtNum(m.backend_4xx)} / ${fmtNum(m.backend_5xx)}`);
+    const sEl = document.getElementById("mSuccess");
+    const r = m.backend_success_rate;
+    sEl.style.color = r >= 0.95 ? "var(--ok)" : r >= 0.5 ? "var(--warn)" : "var(--bad)";
+  } else {
+    setText("mSuccess", "—"); setText("mLatency", "—"); setText("mBackendCodes", "—");
+    document.getElementById("mSuccess").style.color = "";
+  }
 
   const top = rec.top_sources || [];
   const topList = document.getElementById("topList");
@@ -223,10 +261,17 @@ async function tickDashboard() {
       // Append-only update for line charts when a new window arrives.
       if (latest.ts !== lastSeenTs) {
         lastSeenTs = latest.ts;
-        pushPoint(probChart, new Date(latest.ts).toLocaleTimeString(),
-                  [latest.probability ?? 0, latest.threshold ?? 0]);
-        pushPoint(trafficChart, new Date(latest.ts).toLocaleTimeString(),
-                  [latest.metrics?.total_packets || 0, latest.metrics?.unique_src_ips || 0]);
+        const ts = new Date(latest.ts).toLocaleTimeString();
+        pushPoint(probChart, ts, [latest.probability ?? 0, latest.threshold ?? 0]);
+        pushPoint(trafficChart, ts, [latest.metrics?.total_packets || 0, latest.metrics?.unique_src_ips || 0]);
+        // health chart: only push if backend handled at least one request,
+        // otherwise carry forward last value (so the line doesn't drop to 0).
+        if ((latest.metrics?.backend_requests || 0) > 0) {
+          pushPoint(healthChart, ts, [
+            (latest.metrics.backend_success_rate || 0) * 100,
+            latest.metrics.backend_avg_latency_ms || 0,
+          ]);
+        }
       }
     }
     const windows = await getJSON("/api/windows?limit=120");

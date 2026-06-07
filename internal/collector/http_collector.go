@@ -24,6 +24,11 @@ type PacketEvent struct {
 
 	TCPSYN bool
 	TCPACK bool
+
+	// Backend response metrics (HTTP mode only). Zero means "not applicable"
+	// (event recorded before the proxy attempted the backend).
+	BackendStatus    int // 0 = no response (timeout/conn refused), otherwise HTTP code
+	BackendLatencyMs int
 }
 
 // Options: в режиме !pcap используются ListenAddr и BackendURL.
@@ -53,22 +58,34 @@ func Run(ctx context.Context, opt Options, out chan<- PacketEvent) error {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(backend)
+	// Treat backend failures (timeout, connection refused) as 0 status so we
+	// can count them as "down" in the aggregator instead of letting the proxy
+	// write its own 502 and us see only a healthy default.
+	proxy.ErrorHandler = func(rw http.ResponseWriter, _ *http.Request, _ error) {
+		rw.WriteHeader(http.StatusBadGateway)
+	}
 
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIP(r)
-		// Оценка "размера" события: ContentLength + длина URL (очень грубо)
 		ln := 0
 		if r.ContentLength > 0 {
 			ln = int(r.ContentLength)
 		}
 		ln += len(r.URL.String())
 
+		rec := &statusRecorder{ResponseWriter: w, status: 200}
+		start := time.Now()
+		proxy.ServeHTTP(rec, r)
+		latencyMs := int(time.Since(start) / time.Millisecond)
+
 		ev := PacketEvent{
-			Ts:     time.Now(),
-			SrcIP:  ip,
-			DstIP:  backend.Host,
-			Proto:  "TCP",
-			Length: ln,
+			Ts:               start,
+			SrcIP:            ip,
+			DstIP:            backend.Host,
+			Proto:            "TCP",
+			Length:           ln,
+			BackendStatus:    rec.status,
+			BackendLatencyMs: latencyMs,
 		}
 
 		// Не блокируем обработку запросов, если канал переполнен
@@ -77,8 +94,6 @@ func Run(ctx context.Context, opt Options, out chan<- PacketEvent) error {
 		default:
 			// drop
 		}
-
-		proxy.ServeHTTP(w, r)
 	})
 
 	srv := &http.Server{
@@ -99,6 +114,30 @@ func Run(ctx context.Context, opt Options, out chan<- PacketEvent) error {
 		return nil
 	}
 	return err
+}
+
+// statusRecorder captures the HTTP status code written through the proxy so
+// we can compute success rate / error rate per window.
+type statusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	if !s.wroteHeader {
+		s.status = code
+		s.wroteHeader = true
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Write(b []byte) (int, error) {
+	if !s.wroteHeader {
+		s.wroteHeader = true
+		// status stays at default 200
+	}
+	return s.ResponseWriter.Write(b)
 }
 
 func clientIP(r *http.Request) string {

@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>DDoS Guardian — Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -50,6 +51,18 @@
           <div class="metric"><div class="metric-label">tcp / udp / icmp</div><div class="metric-value" id="mProto">—</div></div>
           <div class="metric"><div class="metric-label">tcp syn</div><div class="metric-value" id="mSyn">—</div></div>
         </div>
+      </div>
+
+      <div class="card">
+        <h2>Доступность защищаемого сервиса</h2>
+        <p class="muted small">Что видит клиент за proxy: % успешных ответов и средняя задержка ответа бэкенда в текущем окне. Падает — значит атака давит, держится — защита работает.</p>
+        <div class="grid">
+          <div class="metric"><div class="metric-label">success rate</div><div class="metric-value" id="mSuccess">—</div></div>
+          <div class="metric"><div class="metric-label">avg latency</div><div class="metric-value" id="mLatency">—</div></div>
+          <div class="metric"><div class="metric-label">2xx / 4xx / 5xx</div><div class="metric-value" id="mBackendCodes">—</div></div>
+          <div class="metric"><div class="metric-label">requests / window</div><div class="metric-value" id="mBackendReqs">—</div></div>
+        </div>
+        <div class="chart-wrap"><canvas id="healthChart"></canvas></div>
       </div>
 
       <div class="card">

@@ -28,8 +28,33 @@ type WindowStats struct {
 	TCPSYN int
 	TCPACK int
 
+	// Backend health metrics (HTTP mode). Filled from collector PacketEvents.
+	BackendRequests     int // total requests where the proxy attempted the backend
+	Backend2xx          int
+	Backend4xx          int
+	Backend5xx          int
+	BackendLatencySumMs int
+
 	// For reporting/top offenders
 	SrcCounts map[string]int
+}
+
+// BackendAvgLatencyMs returns the mean backend latency in milliseconds, or 0
+// if no backend requests were recorded in the window.
+func (w WindowStats) BackendAvgLatencyMs() int {
+	if w.BackendRequests == 0 {
+		return 0
+	}
+	return w.BackendLatencySumMs / w.BackendRequests
+}
+
+// BackendSuccessRate returns the share of 2xx responses in (0..1], or 0 when
+// there were no backend requests.
+func (w WindowStats) BackendSuccessRate() float64 {
+	if w.BackendRequests == 0 {
+		return 0
+	}
+	return float64(w.Backend2xx) / float64(w.BackendRequests)
 }
 
 type Aggregator struct {
@@ -88,6 +113,19 @@ func (a *Aggregator) Run(ctx context.Context, in <-chan collector.PacketEvent, w
 			}
 			ws.TotalPackets++
 			ws.TotalBytes += ev.Length
+
+			if ev.BackendStatus != 0 {
+				ws.BackendRequests++
+				ws.BackendLatencySumMs += ev.BackendLatencyMs
+				switch {
+				case ev.BackendStatus >= 200 && ev.BackendStatus < 300:
+					ws.Backend2xx++
+				case ev.BackendStatus >= 400 && ev.BackendStatus < 500:
+					ws.Backend4xx++
+				case ev.BackendStatus >= 500:
+					ws.Backend5xx++
+				}
+			}
 
 			switch ev.Proto {
 			case "TCP":
