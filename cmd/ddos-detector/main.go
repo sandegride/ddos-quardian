@@ -16,7 +16,9 @@ import (
 	"ddos-detector/internal/config"
 	"ddos-detector/internal/dashboard"
 	"ddos-detector/internal/detector"
+	"ddos-detector/internal/loadgen"
 	"ddos-detector/internal/ml"
+	"ddos-detector/internal/runtime"
 )
 
 func main() {
@@ -31,8 +33,8 @@ func main() {
 
 	whitelist, err := config.LoadWhitelist(cfg.WhitelistPath)
 	if err != nil {
-		fmt.Println("Whitelist error:", err)
-		os.Exit(1)
+		fmt.Println("Whitelist warning:", err)
+		whitelist = config.EmptyWhitelist()
 	}
 
 	var model *ml.LogisticModel
@@ -42,11 +44,10 @@ func main() {
 			fmt.Println("Model load failed (fallback to heuristic):", err)
 		} else {
 			model = m
-			if cfg.Threshold > 0 {
-				model.Threshold = cfg.Threshold
-			}
 		}
 	}
+
+	params := runtime.NewParams(cfg.Threshold, cfg.ConfirmWindows, cfg.RelaxWindows, cfg.WindowMs)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -72,7 +73,6 @@ func main() {
 	pktCh := make(chan collector.PacketEvent, 50000)
 	winCh := make(chan aggregator.WindowStats, 100)
 
-	// Collector (по умолчанию HTTP proxy collector; в pcap режиме — сбор пакетов)
 	go func() {
 		opt := collector.Options{
 			ListenAddr: cfg.ListenAddr,
@@ -87,7 +87,6 @@ func main() {
 		}
 	}()
 
-	// Aggregator
 	agg := aggregator.New(whitelist)
 	window := time.Duration(cfg.WindowMs) * time.Millisecond
 	go func() {
@@ -97,35 +96,50 @@ func main() {
 		}
 	}()
 
-	// Detector
-	det := detector.New(model, cfg.Threshold, cfg.ConfirmWindows, cfg.RelaxWindows)
+	det := detector.New(model, params)
 	det.WebhookURL = cfg.AlertWebhookURL
 	det.EnableMitigation = cfg.EnableMitigation
 	det.MitigationScript = cfg.MitigationScript
 
-	// Dashboard (web UI)
 	store := dashboard.NewStore(300)
 	det.Store = store
+
+	lg := loadgen.New(cfg.ListenAddr)
+
+	auth := dashboard.AdminAuth{
+		User: os.Getenv("ADMIN_USER"),
+		Pass: os.Getenv("ADMIN_PASS"),
+	}
+
 	go func() {
-		if err := dashboard.Start(ctx, cfg.DashboardAddr, store); err != nil && err != http.ErrServerClosed {
+		err := dashboard.Start(ctx, cfg.DashboardAddr, dashboard.Deps{
+			Store:     store,
+			Params:    params,
+			Whitelist: whitelist,
+			LoadGen:   lg,
+			Auth:      auth,
+		})
+		if err != nil && err != http.ErrServerClosed {
 			fmt.Println("Dashboard error:", err)
 			cancel()
 		}
 	}()
 
 	fmt.Println("DDoS detector started")
-	fmt.Println("Window:", window, "Threshold:", det.Threshold)
-	if cfg.BackendURL != "" {
-		fmt.Println("HTTP mode:", cfg.ListenAddr, "->", cfg.BackendURL)
-	} else {
-		fmt.Println("PCAP mode:", cfg.Interface, "BPF:", cfg.BPF)
-	}
+	fmt.Println("Window:", window, "Threshold:", params.Threshold())
+	fmt.Println("HTTP mode:", cfg.ListenAddr, "->", cfg.BackendURL)
 	if model != nil {
 		fmt.Println("Model loaded:", cfg.ModelPath)
 	} else {
 		fmt.Println("Model: NONE (heuristic mode)")
 	}
 	fmt.Println("Dashboard:", "http://127.0.0.1"+cfg.DashboardAddr)
+	fmt.Println("Loadgen target:", lg.Target())
+	if auth.User == "" {
+		fmt.Println("Admin: DISABLED (set ADMIN_USER and ADMIN_PASS to enable mutations)")
+	} else {
+		fmt.Println("Admin: enabled (user:", auth.User+")")
+	}
 
 	if err := det.Run(ctx, winCh); err != nil {
 		fmt.Println("Detector stopped:", err)

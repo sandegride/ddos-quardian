@@ -14,6 +14,7 @@ import (
 	"ddos-detector/internal/dashboard"
 	"ddos-detector/internal/features"
 	"ddos-detector/internal/ml"
+	"ddos-detector/internal/runtime"
 )
 
 type State string
@@ -26,9 +27,7 @@ const (
 
 type Detector struct {
 	Model            *ml.LogisticModel
-	Threshold        float64
-	ConfirmWindows   int
-	RelaxWindows     int
+	Params           *runtime.Params
 	WebhookURL       string
 	EnableMitigation bool
 	MitigationScript string
@@ -41,21 +40,15 @@ type Detector struct {
 	belowCount int
 }
 
-func New(model *ml.LogisticModel, threshold float64, confirm, relax int) *Detector {
-	d := &Detector{
-		Model:          model,
-		Threshold:      threshold,
-		ConfirmWindows: confirm,
-		RelaxWindows:   relax,
-		state:          StateNormal,
+func New(model *ml.LogisticModel, params *runtime.Params) *Detector {
+	if params == nil {
+		params = runtime.NewParams(0.7, 2, 2, 1000)
 	}
-	if d.ConfirmWindows <= 0 {
-		d.ConfirmWindows = 2
+	return &Detector{
+		Model:  model,
+		Params: params,
+		state:  StateNormal,
 	}
-	if d.RelaxWindows <= 0 {
-		d.RelaxWindows = 2
-	}
-	return d
 }
 
 func (d *Detector) Run(ctx context.Context, in <-chan aggregator.WindowStats) error {
@@ -72,15 +65,21 @@ func (d *Detector) Run(ctx context.Context, in <-chan aggregator.WindowStats) er
 func (d *Detector) processWindow(ws aggregator.WindowStats) {
 	x := features.FeatureVector(ws)
 
-	// If no model, fallback to heuristic score
+	threshold := d.Params.Threshold()
+	confirm := d.Params.ConfirmWindows()
+	relax := d.Params.RelaxWindows()
+
 	p := 0.0
 	if d.Model != nil {
+		// Use the same threshold value as the model's threshold so PredictProba's
+		// internal threshold matches what the detector uses for state transitions.
+		d.Model.Threshold = threshold
 		p = d.Model.PredictProba(x)
 	} else {
 		p = heuristicScore(ws)
 	}
 
-	isAbove := p >= d.Threshold
+	isAbove := p >= threshold
 
 	if isAbove {
 		d.aboveCount++
@@ -97,14 +96,14 @@ func (d *Detector) processWindow(ws aggregator.WindowStats) {
 			d.state = StateSuspect
 		}
 	case StateSuspect:
-		if isAbove && d.aboveCount >= d.ConfirmWindows {
+		if isAbove && d.aboveCount >= confirm {
 			d.state = StateAttack
 		}
-		if !isAbove && d.belowCount >= d.RelaxWindows {
+		if !isAbove && d.belowCount >= relax {
 			d.state = StateNormal
 		}
 	case StateAttack:
-		if !isAbove && d.belowCount >= d.RelaxWindows {
+		if !isAbove && d.belowCount >= relax {
 			d.state = StateNormal
 		}
 	}
@@ -119,7 +118,7 @@ func (d *Detector) processWindow(ws aggregator.WindowStats) {
 			Ts:          ws.WindowEnd,
 			State:       string(d.state),
 			Probability: p,
-			Threshold:   d.Threshold,
+			Threshold:   threshold,
 			Metrics: dashboard.WindowMetrics{
 				TotalPackets: ws.TotalPackets,
 				TotalBytes:   ws.TotalBytes,
@@ -197,7 +196,6 @@ func postJSON(url string, body []byte) error {
 }
 
 func (d *Detector) mitigate(top []string) error {
-	// Pass IPs as a single argument "ip1,ip2,ip3"
 	arg := strings.Join(top, ",")
 	cmd := exec.Command(d.MitigationScript, arg)
 	out, err := cmd.CombinedOutput()
@@ -207,8 +205,6 @@ func (d *Detector) mitigate(top []string) error {
 
 // heuristicScore returns a rough probability estimate without ML model.
 func heuristicScore(ws aggregator.WindowStats) float64 {
-	// Very rough: combine normalized signals.
-	// Tune these for your environment.
 	score := 0.0
 	if ws.TotalPackets > 5000 {
 		score += 0.4

@@ -1,0 +1,16 @@
+services:
+  ddos-guardian:
+    build: .
+    image: ddos-guardian:latest
+    container_name: ddos-guardian
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # reverse-proxy (атакуемый порт)
+      - "8090:8090"   # dashboard + admin UI
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASS: ${ADMIN_PASS:-changeme}
+    # При желании можно подменить конфиг/модель снаружи:
+    # volumes:
+    #   - ./configs:/app/configs:ro
+    #   - ./models:/app/models:ro

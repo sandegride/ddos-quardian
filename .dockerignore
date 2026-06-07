@@ -1,0 +1,11 @@
+.git
+.gitignore
+.idea
+.claude
+.DS_Store
+data
+loadtest.js
+README.md
+*.md
+docker-compose.yml
+Dockerfile

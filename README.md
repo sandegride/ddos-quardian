@@ -3,7 +3,21 @@
 Этот проект — учебный/прикладной прототип:
 - **HTTP-режим (по умолчанию):** работает как reverse-proxy перед вашим сервисом и анализирует поведение запросов.
 - **PCAP-режим (опционально):** сбор пакетов через libpcap (нужен build-tag `pcap` и зависимость gopacket).
-- **Web dashboard (demo):** отдельный HTTP-сервер с простой версткой и JSON API для отображения состояний/метрик по окнам Δt.
+- **Web dashboard (demo):** отдельный HTTP-сервер с панелью мониторинга (графики, метрики, история окон) и JSON API.
+- **Admin UI:** живое изменение `threshold` / `confirm_windows` / `relax_windows` / whitelist + запуск встроенного нагрузочного теста из браузера. Защищено basic-auth (env `ADMIN_USER`, `ADMIN_PASS`).
+- **Docker:** `docker compose up --build` — и всё работает на сервере без зависимостей.
+
+## Демо на сервере (рекомендуемый способ для защиты)
+
+```bash
+ADMIN_USER=admin ADMIN_PASS=demo docker compose up -d --build
+```
+
+После запуска:
+- `http://<server>:8080` — атакуемый порт (reverse-proxy → встроенный echo-бэкенд)
+- `http://<server>:8090` — dashboard + Admin
+
+В админке: жмёшь **Demo preset** → видишь как probability на графике пересекает threshold, состояние идёт `NORMAL → SUSPECT → ATTACK`, в табличке окон строки подсвечиваются. Меняешь threshold ползунком — поведение меняется на лету.
 
 ## Быстрый старт: HTTP reverse-proxy + Web dashboard
 
@@ -54,11 +68,23 @@ k6 run ./loadtest.js
 - последняя колонка: `label` (0/1), где 1 = атака, 0 = норма
 - остальные колонки: числовые признаки (см. `internal/features/features.go`)
 
-## Web dashboard API (для интеграций/проверки)
+## Web dashboard API
 
-- `GET /api/health`
-- `GET /api/latest`
-- `GET /api/windows?limit=120`
+Read-only (без auth):
+- `GET /api/health` — состояние сервиса, target loadgen
+- `GET /api/latest` — последнее окно Δt
+- `GET /api/windows?limit=120` — история окон
+- `GET /api/config` — текущие параметры детектора
+- `GET /api/whitelist` — текущий whitelist
+- `GET /api/loadtest/status` — статус нагрузочного теста (фаза, прогресс, RPS)
+
+Mutating (basic-auth, `ADMIN_USER` / `ADMIN_PASS`):
+- `POST /api/config` — обновить threshold/confirm_windows/relax_windows
+- `POST /api/whitelist` — заменить whitelist (`{"text": "127.0.0.1\n10.0.0.0/24"}`)
+- `POST /api/loadtest/start` — стартовать сценарий (`{"preset":"demo"}` или `{"scenario":{...}}`)
+- `POST /api/loadtest/stop` — остановить тест
+
+Если `ADMIN_USER` / `ADMIN_PASS` не заданы в env — mutating-эндпоинты отдают `503`.
 
 ## PCAP режим (опционально)
 
