@@ -50,14 +50,17 @@ function showMsg(id, text, ok) {
 }
 
 // ---------- tabs --------------------------------------------------------
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + name));
+}
 document.querySelectorAll(".tab").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
-  });
+  btn.addEventListener("click", () => switchTab(btn.dataset.tab));
 });
+// Honor URL hash so screenshots can target a specific tab: e.g. /#admin
+if (location.hash === "#admin" || location.hash === "#dashboard") {
+  switchTab(location.hash.slice(1));
+}
 
 // ---------- charts -----------------------------------------------------
 const MAX_POINTS = 120;
